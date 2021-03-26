@@ -11,5 +11,5 @@ RUN apt-get update && \
     fc-cache /fonts && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /HarukaBot
-CMD ["/usr/bin/hb","run"]
+CMD ["hb","run"]
 
