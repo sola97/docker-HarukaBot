@@ -55,7 +55,8 @@ jobs:
                 groups.get(b).created - groups.get(a).created ||
                 groups.get(b).sourceId - groups.get(a).sourceId || groups.get(b).attempt - groups.get(a).attempt
               );
-              if (keys.length === 0) return { sourceId: null, sources: [], keepId: null, completed };
+              const runAttempts = Object.fromEntries([...runs].map(([id, run]) => [id, run.run_attempt]));
+              if (keys.length === 0) return { sourceId: null, sources: [], keepId: null, completed, runAttempts };
               const group = groups.get(keys[0]);
               const { sourceId, attempt: sourceAttempt, created: sourceCreated } = group;
               const sources = group.artifacts;
@@ -65,7 +66,7 @@ jobs:
               const single = bundle || (sources.length === 1 ? sources[0] : null);
               const expiresWithinSevenDays = single &&
                 Date.parse(single.expires_at) <= Date.parse(single.created_at) + 7 * 24 * 60 * 60 * 1000 + 60000;
-              return { sourceId, sourceCreated, sourceAttempt, bundleName, sources, keepId: expiresWithinSevenDays ? single.id : null, completed };
+              return { sourceId, sourceCreated, sourceAttempt, bundleName, sources, keepId: expiresWithinSevenDays ? single.id : null, completed, runAttempts };
             }
             const fs = require('node:fs');
             const path = require('node:path');
@@ -117,8 +118,18 @@ jobs:
             const plan = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'artifact-retention-plan.json'), 'utf8'));
             const keepId = process.env.RETAINED_ARTIFACT_ID;
             if (plan.sources.length > 0 && !keepId) throw new Error('No retained artifact; refusing to delete source files');
+            const runStates = new Map();
             for (const artifact of plan.completed) {
               if (String(artifact.id) === keepId) continue;
+              const runId = artifact.workflow_run.id;
+              if (!runStates.has(runId)) {
+                const run = (await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId })).data;
+                runStates.set(runId, run.status === 'completed' && run.run_attempt === plan.runAttempts[runId]);
+              }
+              if (!runStates.get(runId)) {
+                core.info(`Preserved artifacts of active or rerun workflow ${runId}`);
+                continue;
+              }
               await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id });
               core.info(`Deleted ${artifact.name} (${artifact.id})`);
             }
