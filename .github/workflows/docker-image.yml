@@ -32,3 +32,5 @@ jobs:
           context: .
           push: true
           tags: sola97/harukabot:latest
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
